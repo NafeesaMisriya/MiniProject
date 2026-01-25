@@ -2,19 +2,18 @@
 __pycache__/
 *.pyc
 
-# Virtual environments
+# Virtual environment
 venv/
-env/
 Lib/
 Scripts/
 pyvenv.cfg
 
-# Environment files
+# Environment variables
 .env
 
-# IDE
+# Database
+*.db
+
+# Editors
 .vscode/
 .idea/
-
-# Databases
-*.db
