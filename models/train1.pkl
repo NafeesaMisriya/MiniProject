@@ -1,0 +1,20 @@
+import joblib
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+
+X_train = joblib.load("data/X_train.pkl")
+y_train = joblib.load("data/y_train.pkl")
+
+# Stable Model
+model_v1 = RandomForestClassifier(
+    n_estimators=200,
+    max_depth=None,
+    min_samples_split=2,
+    random_state=42
+)
+
+model_v1.fit(X_train, y_train)
+
+joblib.dump(model_v1, "models/model_v1.pkl")
+
+print("V1 (LOW RISK) model saved.")
