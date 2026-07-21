@@ -1,6 +1,7 @@
 import os
 import tempfile
 import joblib
+from typing import Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -70,8 +71,8 @@ def post_reset_model():
 
 @app.post("/api/upload-baseline")
 async def upload_baseline(
-    file: UploadFile = File(None),
-    baseline_model_name: str = Form(None)
+    file: Optional[UploadFile] = File(None),
+    baseline_model_name: Optional[str] = Form(None)
 ):
     if not file and not baseline_model_name:
         raise HTTPException(status_code=400, detail="Please upload a model or select a pre-loaded model.")
@@ -92,10 +93,10 @@ async def upload_baseline(
 
 @app.post("/api/run-analysis")
 async def run_analysis(
-    baseline_file: UploadFile = File(None),
-    candidate_file: UploadFile = File(None),
-    baseline_model_name: str = Form(None),
-    candidate_model_name: str = Form(None)
+    baseline_file: Optional[UploadFile] = File(None),
+    candidate_file: Optional[UploadFile] = File(None),
+    baseline_model_name: Optional[str] = Form(None),
+    candidate_model_name: Optional[str] = Form(None)
 ):
     if not baseline_file and not baseline_model_name:
         raise HTTPException(status_code=400, detail="Please upload a baseline model or select a pre-loaded model.")

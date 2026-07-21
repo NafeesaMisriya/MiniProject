@@ -1,5 +1,29 @@
 import { useState, useEffect, useRef } from 'react'
 
+async function getErrorMessage(res, defaultMsg) {
+  try {
+    const data = await res.json()
+    if (data && data.detail) {
+      if (typeof data.detail === 'string') {
+        return data.detail
+      }
+      if (Array.isArray(data.detail)) {
+        return data.detail.map(e => {
+          const field = e.loc ? e.loc.filter(l => l !== 'body').join('.') : ''
+          return field ? `${field}: ${e.msg}` : e.msg
+        }).join(', ')
+      }
+      return JSON.stringify(data.detail)
+    }
+  } catch (_) {
+    try {
+      const text = await res.text()
+      if (text && text.length < 150) return text
+    } catch (__) {}
+  }
+  return defaultMsg
+}
+
 function App() {
   const API_BASE = import.meta.env.VITE_API_URL || '';
   const [page, setPage] = useState('upload') // 'upload', 'results', 'history'
@@ -74,8 +98,8 @@ function App() {
         body: formData,
       })
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || 'Failed to activate baseline model.')
+        const errMsg = await getErrorMessage(res, 'Failed to activate baseline model.')
+        throw new Error(errMsg)
       }
       const data = await res.json()
       setActiveModel(data.active_model)
@@ -103,8 +127,8 @@ function App() {
         body: formData,
       })
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || 'Failed to activate baseline model.')
+        const errMsg = await getErrorMessage(res, 'Failed to activate baseline model.')
+        throw new Error(errMsg)
       }
       const data = await res.json()
       setActiveModel(data.active_model)
@@ -181,8 +205,8 @@ function App() {
       })
       
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || 'An error occurred during analysis.')
+        const errMsg = await getErrorMessage(res, 'An error occurred during analysis.')
+        throw new Error(errMsg)
       }
 
       const data = await res.json()
@@ -216,8 +240,8 @@ function App() {
       })
 
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || 'Failed to submit review action.')
+        const errMsg = await getErrorMessage(res, 'Failed to submit review action.')
+        throw new Error(errMsg)
       }
 
       const data = await res.json()
