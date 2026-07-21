@@ -1,0 +1,17 @@
+# Ignore backend python files and data from Vercel deployment
+analysis/
+backend/
+data/
+models/
+etc/
+share/
+training/
+app.py
+main.py
+requirements.txt
+run.bat
+test.py
+structure.txt
+*.pkl
+*.db
+__pycache__/
