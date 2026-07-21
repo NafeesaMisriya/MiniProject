@@ -1,7 +1,7 @@
 import os
 import tempfile
 import joblib
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -69,43 +69,76 @@ def post_reset_model():
 
 
 @app.post("/api/upload-baseline")
-async def upload_baseline(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pkl"):
-        raise HTTPException(status_code=400, detail="Only .pkl files are allowed.")
+async def upload_baseline(
+    file: UploadFile = File(None),
+    baseline_model_name: str = Form(None)
+):
+    if not file and not baseline_model_name:
+        raise HTTPException(status_code=400, detail="Please upload a model or select a pre-loaded model.")
     
-    baseline_name = os.path.splitext(file.filename)[0]
+    if file:
+        if not file.filename.endswith(".pkl"):
+            raise HTTPException(status_code=400, detail="Only .pkl files are allowed.")
+        baseline_name = os.path.splitext(file.filename)[0]
+    else:
+        allowed_preloaded = ["model_v0", "model_v1", "model_v2", "model_v3"]
+        if baseline_model_name not in allowed_preloaded:
+            raise HTTPException(status_code=400, detail=f"Invalid pre-loaded model: {baseline_model_name}")
+        baseline_name = baseline_model_name
+        
     write_current_model(baseline_name)
     return {"active_model": read_current_model(), "baseline_name": baseline_name}
 
 
 @app.post("/api/run-analysis")
 async def run_analysis(
-    baseline_file: UploadFile = File(...),
-    candidate_file: UploadFile = File(...)
+    baseline_file: UploadFile = File(None),
+    candidate_file: UploadFile = File(None),
+    baseline_model_name: str = Form(None),
+    candidate_model_name: str = Form(None)
 ):
-    if not baseline_file.filename.endswith(".pkl") or not candidate_file.filename.endswith(".pkl"):
-        raise HTTPException(status_code=400, detail="Only .pkl files are allowed.")
-    
-    baseline_name = os.path.splitext(baseline_file.filename)[0]
-    candidate_name = os.path.splitext(candidate_file.filename)[0]
+    if not baseline_file and not baseline_model_name:
+        raise HTTPException(status_code=400, detail="Please upload a baseline model or select a pre-loaded model.")
+    if not candidate_file and not candidate_model_name:
+        raise HTTPException(status_code=400, detail="Please upload a candidate model or select a pre-loaded model.")
 
-    # Save to temp files so joblib can load them
-    tmp_baseline = tempfile.NamedTemporaryFile(delete=False, suffix=".pkl")
-    tmp_candidate = tempfile.NamedTemporaryFile(delete=False, suffix=".pkl")
+    tmp_baseline = None
+    tmp_candidate = None
 
     try:
-        # Write contents
-        content_base = await baseline_file.read()
-        tmp_baseline.write(content_base)
-        tmp_baseline.close()
+        # Load baseline model
+        if baseline_file:
+            if not baseline_file.filename.endswith(".pkl"):
+                raise HTTPException(status_code=400, detail="Only .pkl files are allowed.")
+            baseline_name = os.path.splitext(baseline_file.filename)[0]
+            tmp_baseline = tempfile.NamedTemporaryFile(delete=False, suffix=".pkl")
+            content_base = await baseline_file.read()
+            tmp_baseline.write(content_base)
+            tmp_baseline.close()
+            baseline_model = joblib.load(tmp_baseline.name)
+        else:
+            allowed_preloaded = ["model_v0", "model_v1", "model_v2", "model_v3"]
+            if baseline_model_name not in allowed_preloaded:
+                raise HTTPException(status_code=400, detail=f"Invalid pre-loaded baseline model: {baseline_model_name}")
+            baseline_name = baseline_model_name
+            baseline_model = joblib.load(f"models/{baseline_model_name}.pkl")
 
-        content_cand = await candidate_file.read()
-        tmp_candidate.write(content_cand)
-        tmp_candidate.close()
-
-        # Load models
-        baseline_model = joblib.load(tmp_baseline.name)
-        updated_model = joblib.load(tmp_candidate.name)
+        # Load candidate model
+        if candidate_file:
+            if not candidate_file.filename.endswith(".pkl"):
+                raise HTTPException(status_code=400, detail="Only .pkl files are allowed.")
+            candidate_name = os.path.splitext(candidate_file.filename)[0]
+            tmp_candidate = tempfile.NamedTemporaryFile(delete=False, suffix=".pkl")
+            content_cand = await candidate_file.read()
+            tmp_candidate.write(content_cand)
+            tmp_candidate.close()
+            updated_model = joblib.load(tmp_candidate.name)
+        else:
+            allowed_preloaded = ["model_v0", "model_v1", "model_v2", "model_v3"]
+            if candidate_model_name not in allowed_preloaded:
+                raise HTTPException(status_code=400, detail=f"Invalid pre-loaded candidate model: {candidate_model_name}")
+            candidate_name = candidate_model_name
+            updated_model = joblib.load(f"models/{candidate_model_name}.pkl")
 
         # Load dataset
         X_test = joblib.load("data/X_test.pkl")
@@ -177,14 +210,16 @@ async def run_analysis(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         # Clean up temp files
-        try:
-            os.unlink(tmp_baseline.name)
-        except Exception:
-            pass
-        try:
-            os.unlink(tmp_candidate.name)
-        except Exception:
-            pass
+        if tmp_baseline is not None:
+            try:
+                os.unlink(tmp_baseline.name)
+            except Exception:
+                pass
+        if tmp_candidate is not None:
+            try:
+                os.unlink(tmp_candidate.name)
+            except Exception:
+                pass
 
 
 @app.post("/api/review-action")

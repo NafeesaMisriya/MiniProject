@@ -8,6 +8,13 @@ function App() {
   // File state
   const [baselineFile, setBaselineFile] = useState(null)
   const [candidateFile, setCandidateFile] = useState(null)
+
+  // Selection Mode State (preloaded vs upload)
+  const [baselineMode, setBaselineMode] = useState('preloaded') // 'preloaded', 'upload'
+  const [candidateMode, setCandidateMode] = useState('preloaded') // 'preloaded', 'upload'
+  
+  const [preloadedBaseline, setPreloadedBaseline] = useState('model_v0')
+  const [preloadedCandidate, setPreloadedCandidate] = useState('model_v1')
   
   // Loading & error states
   const [isLoading, setIsLoading] = useState(false)
@@ -35,6 +42,10 @@ function App() {
       if (res.ok) {
         const data = await res.json()
         setActiveModel(data.active_model)
+        // If no model set, activate the default preloaded model
+        if (data.active_model === 'None set' || data.active_model === 'Active Model: None' || data.active_model === 'None') {
+          await handlePreloadedBaselineChange('model_v0')
+        }
       }
     } catch (err) {
       console.error('Error fetching active model:', err)
@@ -76,6 +87,56 @@ function App() {
     }
   }
 
+  // Handle immediate preloaded baseline activation
+  const handlePreloadedBaselineChange = async (modelName) => {
+    if (!modelName) return
+    setPreloadedBaseline(modelName)
+    setError(null)
+    
+    const formData = new FormData()
+    formData.append('baseline_model_name', modelName)
+    
+    try {
+      setIsLoading(true)
+      const res = await fetch(`${API_BASE}/api/upload-baseline`, {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.detail || 'Failed to activate baseline model.')
+      }
+      const data = await res.json()
+      setActiveModel(data.active_model)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const changeBaselineMode = async (mode) => {
+    setBaselineMode(mode)
+    if (mode === 'preloaded') {
+      await handlePreloadedBaselineChange(preloadedBaseline)
+    } else {
+      if (baselineFile) {
+        await handleBaselineFileChange(baselineFile)
+      } else {
+        // Reset active model
+        try {
+          const res = await fetch(`${API_BASE}/api/reset-model`, { method: 'POST' })
+          if (res.ok) {
+            const data = await res.json()
+            setActiveModel(data.active_model)
+          }
+        } catch (err) {
+          console.error(err)
+        }
+      }
+    }
+  }
+
   const handleCandidateFileChange = (file) => {
     if (!file) return
     if (!file.name.endsWith('.pkl')) {
@@ -88,8 +149,12 @@ function App() {
 
   const handleRunAnalysis = async (e) => {
     e.preventDefault()
-    if (!baselineFile || !candidateFile) {
-      setError('Please upload both models.')
+    
+    const isBaselineReady = baselineMode === 'preloaded' ? !!preloadedBaseline : !!baselineFile
+    const isCandidateReady = candidateMode === 'preloaded' ? !!preloadedCandidate : !!candidateFile
+    
+    if (!isBaselineReady || !isCandidateReady) {
+      setError('Please provide both models.')
       return
     }
 
@@ -97,8 +162,17 @@ function App() {
     setError(null)
 
     const formData = new FormData()
-    formData.append('baseline_file', baselineFile)
-    formData.append('candidate_file', candidateFile)
+    if (baselineMode === 'preloaded') {
+      formData.append('baseline_model_name', preloadedBaseline)
+    } else {
+      formData.append('baseline_file', baselineFile)
+    }
+
+    if (candidateMode === 'preloaded') {
+      formData.append('candidate_model_name', preloadedCandidate)
+    } else {
+      formData.append('candidate_file', candidateFile)
+    }
 
     try {
       const res = await fetch(`${API_BASE}/api/run-analysis`, {
@@ -159,10 +233,15 @@ function App() {
   const handleBackToUpload = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/reset-model`, { method: 'POST' })
-      if (res.ok) {
-        const data = await res.json()
-        setActiveModel(data.active_model)
+      // If we are in preloaded mode, make sure model_v0 is active
+      if (baselineMode === 'preloaded') {
+        await handlePreloadedBaselineChange('model_v0')
+      } else {
+        const res = await fetch(`${API_BASE}/api/reset-model`, { method: 'POST' })
+        if (res.ok) {
+          const data = await res.json()
+          setActiveModel(data.active_model)
+        }
       }
       // Reset local states
       setBaselineFile(null)
@@ -412,74 +491,150 @@ function App() {
             <form onSubmit={handleRunAnalysis} className="section-card">
               <div className="upload-grid">
                 
-                {/* Baseline Upload */}
+                {/* Baseline Card */}
                 <div className="upload-card">
-                  <label className="upload-label">Upload Baseline Model (.pkl)</label>
-                  <div 
-                    className={`dropzone ${dragActiveBaseline ? 'active' : ''} ${baselineFile ? 'file-selected' : ''}`}
-                    onDragEnter={(e) => handleDrag(e, 'baseline')}
-                    onDragOver={(e) => handleDrag(e, 'baseline')}
-                    onDragLeave={(e) => handleDrag(e, 'baseline')}
-                    onDrop={(e) => handleDrop(e, 'baseline')}
-                    onClick={() => baselineInputRef.current.click()}
-                  >
-                    <input 
-                      type="file" 
-                      ref={baselineInputRef}
-                      style={{ display: 'none' }}
-                      accept=".pkl"
-                      onChange={(e) => handleBaselineFileChange(e.target.files[0])}
-                    />
-                    <svg className="dropzone-icon" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    {baselineFile ? (
-                      <div className="file-pill" onClick={(e) => e.stopPropagation()}>
-                        <span>{baselineFile.name}</span>
-                        <button className="file-clear-btn" onClick={() => setBaselineFile(null)}>×</button>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="dropzone-text">Drag & drop or browse</p>
-                        <p className="dropzone-subtext">Baseline pickled model file (.pkl)</p>
-                      </>
-                    )}
+                  <label className="upload-label">Baseline Model</label>
+                  <div className="segment-control">
+                    <button 
+                      type="button" 
+                      className={`segment-btn ${baselineMode === 'preloaded' ? 'active' : ''}`}
+                      onClick={() => changeBaselineMode('preloaded')}
+                    >
+                      ⚡ Preloaded
+                    </button>
+                    <button 
+                      type="button" 
+                      className={`segment-btn ${baselineMode === 'upload' ? 'active' : ''}`}
+                      onClick={() => changeBaselineMode('upload')}
+                    >
+                      📁 Upload File
+                    </button>
                   </div>
+
+                  {baselineMode === 'preloaded' ? (
+                    <div className="select-container">
+                      <select 
+                        className="model-select"
+                        value={preloadedBaseline}
+                        onChange={(e) => handlePreloadedBaselineChange(e.target.value)}
+                      >
+                        <option value="model_v0">Model v0 (Baseline / Deployed)</option>
+                        <option value="model_v1">Model v1 (Small Drift)</option>
+                        <option value="model_v2">Model v2 (Moderate Bias)</option>
+                        <option value="model_v3">Model v3 (Severe Bias)</option>
+                      </select>
+                      <p className="select-helper-text">
+                        {preloadedBaseline === 'model_v0' && '🏆 Standard trained baseline model. 0% bias injected.'}
+                        {preloadedBaseline === 'model_v1' && '📈 Small drift model (slightly different tree depth, minor noise).'}
+                        {preloadedBaseline === 'model_v2' && '⚠️ Moderately biased candidate (trained without High radius subgroup).'}
+                        {preloadedBaseline === 'model_v3' && '🚨 Severely biased candidate (trained without Low radius subgroup + noise).'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div 
+                      className={`dropzone ${dragActiveBaseline ? 'active' : ''} ${baselineFile ? 'file-selected' : ''}`}
+                      onDragEnter={(e) => handleDrag(e, 'baseline')}
+                      onDragOver={(e) => handleDrag(e, 'baseline')}
+                      onDragLeave={(e) => handleDrag(e, 'baseline')}
+                      onDrop={(e) => handleDrop(e, 'baseline')}
+                      onClick={() => baselineInputRef.current.click()}
+                    >
+                      <input 
+                        type="file" 
+                        ref={baselineInputRef}
+                        style={{ display: 'none' }}
+                        accept=".pkl"
+                        onChange={(e) => handleBaselineFileChange(e.target.files[0])}
+                      />
+                      <svg className="dropzone-icon" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      {baselineFile ? (
+                        <div className="file-pill" onClick={(e) => e.stopPropagation()}>
+                          <span>{baselineFile.name}</span>
+                          <button className="file-clear-btn" onClick={() => setBaselineFile(null)}>×</button>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="dropzone-text">Drag & drop or browse</p>
+                          <p className="dropzone-subtext">Baseline pickled model file (.pkl)</p>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {/* Candidate Upload */}
+                {/* Candidate Card */}
                 <div className="upload-card">
-                  <label className="upload-label">Upload Candidate Model (.pkl)</label>
-                  <div 
-                    className={`dropzone ${dragActiveCandidate ? 'active' : ''} ${candidateFile ? 'file-selected' : ''}`}
-                    onDragEnter={(e) => handleDrag(e, 'candidate')}
-                    onDragOver={(e) => handleDrag(e, 'candidate')}
-                    onDragLeave={(e) => handleDrag(e, 'candidate')}
-                    onDrop={(e) => handleDrop(e, 'candidate')}
-                    onClick={() => candidateInputRef.current.click()}
-                  >
-                    <input 
-                      type="file" 
-                      ref={candidateInputRef}
-                      style={{ display: 'none' }}
-                      accept=".pkl"
-                      onChange={(e) => handleCandidateFileChange(e.target.files[0])}
-                    />
-                    <svg className="dropzone-icon" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    {candidateFile ? (
-                      <div className="file-pill" onClick={(e) => e.stopPropagation()}>
-                        <span>{candidateFile.name}</span>
-                        <button className="file-clear-btn" onClick={() => setCandidateFile(null)}>×</button>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="dropzone-text">Drag & drop or browse</p>
-                        <p className="dropzone-subtext">Candidate pickled model file (.pkl)</p>
-                      </>
-                    )}
+                  <label className="upload-label">Candidate Model</label>
+                  <div className="segment-control">
+                    <button 
+                      type="button" 
+                      className={`segment-btn ${candidateMode === 'preloaded' ? 'active' : ''}`}
+                      onClick={() => setCandidateMode('preloaded')}
+                    >
+                      ⚡ Preloaded
+                    </button>
+                    <button 
+                      type="button" 
+                      className={`segment-btn ${candidateMode === 'upload' ? 'active' : ''}`}
+                      onClick={() => setCandidateMode('upload')}
+                    >
+                      📁 Upload File
+                    </button>
                   </div>
+
+                  {candidateMode === 'preloaded' ? (
+                    <div className="select-container">
+                      <select 
+                        className="model-select"
+                        value={preloadedCandidate}
+                        onChange={(e) => setPreloadedCandidate(e.target.value)}
+                      >
+                        <option value="model_v0">Model v0 (Baseline / Deployed)</option>
+                        <option value="model_v1">Model v1 (Small Drift)</option>
+                        <option value="model_v2">Model v2 (Moderate Bias)</option>
+                        <option value="model_v3">Model v3 (Severe Bias)</option>
+                      </select>
+                      <p className="select-helper-text">
+                        {preloadedCandidate === 'model_v0' && '🏆 Standard trained baseline model. 0% bias injected.'}
+                        {preloadedCandidate === 'model_v1' && '📈 Small drift model (slightly different tree depth, minor noise).'}
+                        {preloadedCandidate === 'model_v2' && '⚠️ Moderately biased candidate (trained without High radius subgroup).'}
+                        {preloadedCandidate === 'model_v3' && '🚨 Severely biased candidate (trained without Low radius subgroup + noise).'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div 
+                      className={`dropzone ${dragActiveCandidate ? 'active' : ''} ${candidateFile ? 'file-selected' : ''}`}
+                      onDragEnter={(e) => handleDrag(e, 'candidate')}
+                      onDragOver={(e) => handleDrag(e, 'candidate')}
+                      onDragLeave={(e) => handleDrag(e, 'candidate')}
+                      onDrop={(e) => handleDrop(e, 'candidate')}
+                      onClick={() => candidateInputRef.current.click()}
+                    >
+                      <input 
+                        type="file" 
+                        ref={candidateInputRef}
+                        style={{ display: 'none' }}
+                        accept=".pkl"
+                        onChange={(e) => handleCandidateFileChange(e.target.files[0])}
+                      />
+                      <svg className="dropzone-icon" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      {candidateFile ? (
+                        <div className="file-pill" onClick={(e) => e.stopPropagation()}>
+                          <span>{candidateFile.name}</span>
+                          <button className="file-clear-btn" onClick={() => setCandidateFile(null)}>×</button>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="dropzone-text">Drag & drop or browse</p>
+                          <p className="dropzone-subtext">Candidate pickled model file (.pkl)</p>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -488,7 +643,11 @@ function App() {
                 <button 
                   type="submit" 
                   className="btn btn-primary"
-                  disabled={!baselineFile || !candidateFile || isLoading}
+                  disabled={
+                    isLoading || 
+                    (baselineMode === 'upload' && !baselineFile) || 
+                    (candidateMode === 'upload' && !candidateFile)
+                  }
                 >
                   {isLoading ? 'Processing Models...' : 'Run Risk Analysis'}
                 </button>

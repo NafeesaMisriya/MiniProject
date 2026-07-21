@@ -4,7 +4,6 @@ scikit-learn
 matplotlib
 seaborn
 shap
-streamlit
 fastapi
 uvicorn
 python-multipart
