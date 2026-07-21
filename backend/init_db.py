@@ -1,4 +1,7 @@
-from database import get_connection
+try:
+    from backend.database import get_connection
+except ModuleNotFoundError:
+    from database import get_connection
 
 def create_tables():
     conn = get_connection()
